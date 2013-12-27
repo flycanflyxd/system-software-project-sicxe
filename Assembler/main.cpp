@@ -92,6 +92,121 @@ public:
 	vector<int> format;
 };
 
+void HandleComment(Line &line)
+{
+	line.loc.push_back(-1);
+	line.objectCode.push_back(-1);
+	line.format.push_back(-1);
+}
+
+void HandleInstruction(bool &check, const int mnemonicPosition, Line &line, unsigned int &LOCCTR, OPTAB &optab, vector<string> &statement)
+{
+	string tmpMnemonic(statement[mnemonicPosition]);
+	if (tmpMnemonic[0] == '+')//deal with format 4 situation
+	{
+		line.loc.push_back(LOCCTR);
+		tmpMnemonic.erase(tmpMnemonic.begin());
+		line.format.push_back(4);
+		LOCCTR += 4;
+	}
+	map<string, pair<int, int> >::iterator iter = optab.mnemonic.find(tmpMnemonic);
+	if (check = iter != optab.mnemonic.end())
+	{
+		pair<int, int> opcode_format = optab.mnemonic[tmpMnemonic];
+		if (line.format.size() == line.objectCode.size())//deal with format 3
+		{
+			line.loc.push_back(LOCCTR);
+			line.format.push_back(opcode_format.second);
+			LOCCTR += opcode_format.second;
+		}
+		if (opcode_format.second == 2)
+			line.objectCode.push_back(opcode_format.first << 8);
+		else if (opcode_format.second == 3)
+			line.objectCode.push_back(opcode_format.first << 16);
+		else if (opcode_format.second == 4)
+			line.objectCode.push_back(opcode_format.first << 24);
+	}
+}
+
+void HandleDirective(bool &check, const int directivePosition, Line &line, unsigned int &LOCCTR, OPTAB &optab, vector<string> &statement, DIRTAB &dirtab)
+{
+	for (string directive : dirtab.directive)
+	{
+		if (check = statement[directivePosition] == directive)
+		{
+			if (directive == "START")
+			{
+				line.format.push_back(-1);
+				line.loc.push_back(LOCCTR);
+				line.objectCode.push_back(-1);
+				break;
+			}
+			else if (directive == "BASE")
+			{
+				line.format.push_back(-1);
+				line.loc.push_back(-1);
+				line.objectCode.push_back(-1);
+				break;
+			}
+			else if (directive == "BYTE")
+			{
+				line.format.push_back(-1);
+				line.loc.push_back(LOCCTR);
+				if (statement[directivePosition + 1 ][0] == 'C')
+				{
+					int tmpObcode = 0;
+					LOCCTR += statement[directivePosition + 1].size() - 3;
+					for (string::iterator iter = statement[directivePosition + 1].begin() + 2; iter != statement[directivePosition + 1].end() - 1; ++iter)
+					{
+						tmpObcode <<= 8;
+						tmpObcode += *iter;
+					}
+					line.objectCode.push_back(tmpObcode);
+				}
+				else if (statement[directivePosition + 1][0] == 'X')
+				{
+					LOCCTR += (statement[directivePosition + 1].size() - 3) / 2;
+					string tmp(statement[directivePosition + 1].begin() + 2, statement[directivePosition + 1].end() - 1);
+					int tmpObcode;
+					istringstream iss(tmp);
+					iss >> hex >> tmpObcode;
+					line.objectCode.push_back(tmpObcode);
+				}
+				break;
+			}
+			else if (directive == "RESW")
+			{
+				line.format.push_back(-1);
+				line.loc.push_back(LOCCTR);
+				line.objectCode.push_back(-1);
+				istringstream iss(statement[directivePosition + 1]);
+				int resw;
+				iss >> resw;
+				LOCCTR += 3 * resw;
+				break;
+			}
+			else if (directive == "RESB")
+			{
+				line.format.push_back(-1);
+				line.loc.push_back(LOCCTR);
+				line.objectCode.push_back(-1);
+				istringstream iss(statement[directivePosition + 1]);
+				int resb;
+				iss >> resb;
+				LOCCTR += resb;
+				break;
+			}
+			else if (directive == "END")
+			{
+				line.format.push_back(-1);
+				line.loc.push_back(-1);
+				line.objectCode.push_back(-1);
+				break;
+			}
+		}
+	}
+}
+
 int main()
 {
 	OPTAB optab;
@@ -106,224 +221,229 @@ int main()
 	//==================pass one=======================
 	for (auto statement : line.statement)
 	{
-		if (statement[0] == ".")//deal with comment
+		if (statement[0][0] == '.')//deal with comment
 		{
-			line.loc.push_back(-1);
+			HandleComment(line);
+			/*line.loc.push_back(-1);
 			line.objectCode.push_back(-1);
-			line.format.push_back(-1);
+			line.format.push_back(-1);*/
 		}
 		else
 		{
 			bool check = false;
 			//if statement[0] is mnemonic
-			string tmpMnemonic(statement[0]);
-			if (tmpMnemonic[0] == '+')//deal with format 4 situation
-			{
-				line.loc.push_back(LOCCTR);
-				tmpMnemonic.erase(tmpMnemonic.begin());
-				line.format.push_back(4);
-				LOCCTR += 4;
-			}
-			map<string, pair<int, int> >::iterator iter = optab.mnemonic.find(tmpMnemonic);
-			if (check = iter != optab.mnemonic.end())
-			{
-				pair<int, int> opcode_format = optab.mnemonic[tmpMnemonic];
-				if (line.format.size() == line.objectCode.size())//deal with format 3
-				{
-					line.loc.push_back(LOCCTR);
-					line.format.push_back(opcode_format.second);
-					LOCCTR += opcode_format.second;
-				}
-				if (opcode_format.second == 2)
-					line.objectCode.push_back(opcode_format.first << 8);
-				else if (opcode_format.second == 3)
-					line.objectCode.push_back(opcode_format.first << 16);
-				else if (opcode_format.second == 4)
-					line.objectCode.push_back(opcode_format.first << 24);
-			}
+			HandleInstruction(check, 0, line, LOCCTR, optab, statement);
+			//string tmpMnemonic(statement[0]);
+			//if (tmpMnemonic[0] == '+')//deal with format 4 situation
+			//{
+			//	line.loc.push_back(LOCCTR);
+			//	tmpMnemonic.erase(tmpMnemonic.begin());
+			//	line.format.push_back(4);
+			//	LOCCTR += 4;
+			//}
+			//map<string, pair<int, int> >::iterator iter = optab.mnemonic.find(tmpMnemonic);
+			//if (check = iter != optab.mnemonic.end())
+			//{
+			//	pair<int, int> opcode_format = optab.mnemonic[tmpMnemonic];
+			//	if (line.format.size() == line.objectCode.size())//deal with format 3
+			//	{
+			//		line.loc.push_back(LOCCTR);
+			//		line.format.push_back(opcode_format.second);
+			//		LOCCTR += opcode_format.second;
+			//	}
+			//	if (opcode_format.second == 2)
+			//		line.objectCode.push_back(opcode_format.first << 8);
+			//	else if (opcode_format.second == 3)
+			//		line.objectCode.push_back(opcode_format.first << 16);
+			//	else if (opcode_format.second == 4)
+			//		line.objectCode.push_back(opcode_format.first << 24);
+			//}
 			if (check) continue;
 			//if statement[0] is directive
-			for (string directive : dirtab.directive)
-			{
-				if (check = statement[0] == directive)
-				{
-					if (directive == "START")
-					{
-						line.format.push_back(-1);
-						line.loc.push_back(LOCCTR);
-						line.objectCode.push_back(-1);
-						break;
-					}
-					else if (directive == "BASE")
-					{
-						line.format.push_back(-1);
-						line.loc.push_back(-1);
-						line.objectCode.push_back(-1);
-						break;
-					}
-					else if (directive == "BYTE")
-					{
-						line.format.push_back(-1);
-						line.loc.push_back(LOCCTR);
-						if (statement[1][0] == 'C')
-						{
-							int tmpObcode = 0;
-							LOCCTR += statement[1].size() - 3;
-							for (string::iterator iter = statement[1].begin() + 2; iter != statement[1].end() - 1; ++iter)
-							{
-								tmpObcode <<= 8;
-								tmpObcode += *iter;
-							}
-							line.objectCode.push_back(tmpObcode);
-						}
-						else if (statement[1][0] == 'X')
-						{
-							LOCCTR += (statement[1].size() - 3) / 2;
-							string tmp(statement[1].begin() + 2, statement[1].end() - 1);
-							int tmpObcode;
-							istringstream iss(tmp);
-							iss >> hex >> tmpObcode;
-							line.objectCode.push_back(tmpObcode);
-						}
-						break;
-					}
-					else if (directive == "RESW")
-					{
-						line.format.push_back(-1);
-						line.loc.push_back(LOCCTR);
-						line.objectCode.push_back(-1);
-						istringstream iss(statement[1]);
-						int resw;
-						iss >> resw;
-						LOCCTR += 3 * resw;
-						break;
-					}
-					else if (directive == "RESB")
-					{
-						line.format.push_back(-1);
-						line.loc.push_back(LOCCTR);
-						line.objectCode.push_back(-1);
-						istringstream iss(statement[1]);
-						int resb;
-						iss >> resb;
-						LOCCTR += resb;
-						break;
-					}
-					else if (directive == "END")
-					{
-						line.format.push_back(-1);
-						line.loc.push_back(-1);
-						line.objectCode.push_back(-1);
-						break;
-					}
-				}
-			}
+			HandleDirective(check, 0, line, LOCCTR, optab, statement, dirtab);
+			//for (string directive : dirtab.directive)
+			//{
+			//	if (check = statement[0] == directive)
+			//	{
+			//		if (directive == "START")
+			//		{
+			//			line.format.push_back(-1);
+			//			line.loc.push_back(LOCCTR);
+			//			line.objectCode.push_back(-1);
+			//			break;
+			//		}
+			//		else if (directive == "BASE")
+			//		{
+			//			line.format.push_back(-1);
+			//			line.loc.push_back(-1);
+			//			line.objectCode.push_back(-1);
+			//			break;
+			//		}
+			//		else if (directive == "BYTE")
+			//		{
+			//			line.format.push_back(-1);
+			//			line.loc.push_back(LOCCTR);
+			//			if (statement[1][0] == 'C')
+			//			{
+			//				int tmpObcode = 0;
+			//				LOCCTR += statement[1].size() - 3;
+			//				for (string::iterator iter = statement[1].begin() + 2; iter != statement[1].end() - 1; ++iter)
+			//				{
+			//					tmpObcode <<= 8;
+			//					tmpObcode += *iter;
+			//				}
+			//				line.objectCode.push_back(tmpObcode);
+			//			}
+			//			else if (statement[1][0] == 'X')
+			//			{
+			//				LOCCTR += (statement[1].size() - 3) / 2;
+			//				string tmp(statement[1].begin() + 2, statement[1].end() - 1);
+			//				int tmpObcode;
+			//				istringstream iss(tmp);
+			//				iss >> hex >> tmpObcode;
+			//				line.objectCode.push_back(tmpObcode);
+			//			}
+			//			break;
+			//		}
+			//		else if (directive == "RESW")
+			//		{
+			//			line.format.push_back(-1);
+			//			line.loc.push_back(LOCCTR);
+			//			line.objectCode.push_back(-1);
+			//			istringstream iss(statement[1]);
+			//			int resw;
+			//			iss >> resw;
+			//			LOCCTR += 3 * resw;
+			//			break;
+			//		}
+			//		else if (directive == "RESB")
+			//		{
+			//			line.format.push_back(-1);
+			//			line.loc.push_back(LOCCTR);
+			//			line.objectCode.push_back(-1);
+			//			istringstream iss(statement[1]);
+			//			int resb;
+			//			iss >> resb;
+			//			LOCCTR += resb;
+			//			break;
+			//		}
+			//		else if (directive == "END")
+			//		{
+			//			line.format.push_back(-1);
+			//			line.loc.push_back(-1);
+			//			line.objectCode.push_back(-1);
+			//			break;
+			//		}
+			//	}
+			//}
 			if (check) continue;
 			//if statement[0] is label
 			symtab.add(statement[0], LOCCTR);
 			//if statement[1] is mnemonic
-			tmpMnemonic = statement[1];//?
-			if (tmpMnemonic[0] == '+')//deal with format 4 situation
-			{
-				line.loc.push_back(LOCCTR);
-				tmpMnemonic.erase(tmpMnemonic.begin());
-				line.format.push_back(4);
-				LOCCTR += 4;
-			}
-			iter = optab.mnemonic.find(tmpMnemonic);
-			if (check = iter != optab.mnemonic.end())
-			{
-				pair<int, int> opcode_format = optab.mnemonic[tmpMnemonic];
-				if (line.format.size() == line.objectCode.size())//deal with format 3
-				{
-					line.loc.push_back(LOCCTR);
-					line.format.push_back(opcode_format.second);
-					LOCCTR += opcode_format.second;
-				}
-				if (opcode_format.second == 2)
-					line.objectCode.push_back(opcode_format.first << 8);
-				else if (opcode_format.second == 3)
-					line.objectCode.push_back(opcode_format.first << 16);
-				else if (opcode_format.second == 4)
-					line.objectCode.push_back(opcode_format.first << 24);
-			}
+			HandleInstruction(check, 1, line, LOCCTR, optab, statement);
+			//tmpMnemonic = statement[1];//?
+			//if (tmpMnemonic[0] == '+')//deal with format 4 situation
+			//{
+			//	line.loc.push_back(LOCCTR);
+			//	tmpMnemonic.erase(tmpMnemonic.begin());
+			//	line.format.push_back(4);
+			//	LOCCTR += 4;
+			//}
+			//iter = optab.mnemonic.find(tmpMnemonic);
+			//if (check = iter != optab.mnemonic.end())
+			//{
+			//	pair<int, int> opcode_format = optab.mnemonic[tmpMnemonic];
+			//	if (line.format.size() == line.objectCode.size())//deal with format 3
+			//	{
+			//		line.loc.push_back(LOCCTR);
+			//		line.format.push_back(opcode_format.second);
+			//		LOCCTR += opcode_format.second;
+			//	}
+			//	if (opcode_format.second == 2)
+			//		line.objectCode.push_back(opcode_format.first << 8);
+			//	else if (opcode_format.second == 3)
+			//		line.objectCode.push_back(opcode_format.first << 16);
+			//	else if (opcode_format.second == 4)
+			//		line.objectCode.push_back(opcode_format.first << 24);
+			//}
 			if (check) continue;
 			//if statement[1] is directive
-			for (string directive : dirtab.directive)
-			{
-				if (check = statement[1] == directive)
-				{
-					if (directive == "START")
-					{
-						line.format.push_back(-1);
-						line.loc.push_back(LOCCTR);
-						line.objectCode.push_back(-1);
-						break;
-					}
-					else if (directive == "BASE")
-					{
-						line.format.push_back(-1);
-						line.loc.push_back(-1);
-						line.objectCode.push_back(-1);
-						break;
-					}
-					else if (directive == "BYTE")
-					{
-						line.format.push_back(-1);
-						line.loc.push_back(LOCCTR);
-						if (statement[2][0] == 'C')
-						{
-							int tmpObcode = 0;
-							LOCCTR += statement[2].size() - 3;
-							for (string::iterator iter = statement[2].begin() + 2; iter != statement[2].end() - 1; ++iter)
-							{
-								tmpObcode <<= 8;
-								tmpObcode += *iter;
-							}
-							line.objectCode.push_back(tmpObcode);
-						}
-						else if (statement[2][0] == 'X')
-						{
-							LOCCTR += (statement[2].size() - 3) / 2;
-							string tmp(statement[2].begin() + 2, statement[2].end() - 1);
-							int tmpObcode;
-							istringstream iss(tmp);
-							iss >> hex >> tmpObcode;
-							line.objectCode.push_back(tmpObcode);
-						}
-						break;
-					}
-					else if (directive == "RESW")
-					{
-						line.format.push_back(-1);
-						line.loc.push_back(LOCCTR);
-						line.objectCode.push_back(-1);
-						istringstream iss(statement[2]);
-						int resw;
-						iss >> resw;
-						LOCCTR += 3 * resw;
-						break;
-					}
-					else if (directive == "RESB")
-					{
-						line.format.push_back(-1);
-						line.loc.push_back(LOCCTR);
-						line.objectCode.push_back(-1);
-						istringstream iss(statement[2]);
-						int resb;
-						iss >> resb;
-						LOCCTR += resb;
-						break;
-					}
-					else if (directive == "END")
-					{
-						line.format.push_back(-1);
-						line.loc.push_back(-1);
-						line.objectCode.push_back(-1);
-						break;
-					}
-				}
-			}
+			HandleDirective(check, 1, line, LOCCTR, optab, statement, dirtab);
+			//for (string directive : dirtab.directive)
+			//{
+			//	if (check = statement[1] == directive)
+			//	{
+			//		if (directive == "START")
+			//		{
+			//			line.format.push_back(-1);
+			//			line.loc.push_back(LOCCTR);
+			//			line.objectCode.push_back(-1);
+			//			break;
+			//		}
+			//		else if (directive == "BASE")
+			//		{
+			//			line.format.push_back(-1);
+			//			line.loc.push_back(-1);
+			//			line.objectCode.push_back(-1);
+			//			break;
+			//		}
+			//		else if (directive == "BYTE")
+			//		{
+			//			line.format.push_back(-1);
+			//			line.loc.push_back(LOCCTR);
+			//			if (statement[2][0] == 'C')
+			//			{
+			//				int tmpObcode = 0;
+			//				LOCCTR += statement[2].size() - 3;
+			//				for (string::iterator iter = statement[2].begin() + 2; iter != statement[2].end() - 1; ++iter)
+			//				{
+			//					tmpObcode <<= 8;
+			//					tmpObcode += *iter;
+			//				}
+			//				line.objectCode.push_back(tmpObcode);
+			//			}
+			//			else if (statement[2][0] == 'X')
+			//			{
+			//				LOCCTR += (statement[2].size() - 3) / 2;
+			//				string tmp(statement[2].begin() + 2, statement[2].end() - 1);
+			//				int tmpObcode;
+			//				istringstream iss(tmp);
+			//				iss >> hex >> tmpObcode;
+			//				line.objectCode.push_back(tmpObcode);
+			//			}
+			//			break;
+			//		}
+			//		else if (directive == "RESW")
+			//		{
+			//			line.format.push_back(-1);
+			//			line.loc.push_back(LOCCTR);
+			//			line.objectCode.push_back(-1);
+			//			istringstream iss(statement[2]);
+			//			int resw;
+			//			iss >> resw;
+			//			LOCCTR += 3 * resw;
+			//			break;
+			//		}
+			//		else if (directive == "RESB")
+			//		{
+			//			line.format.push_back(-1);
+			//			line.loc.push_back(LOCCTR);
+			//			line.objectCode.push_back(-1);
+			//			istringstream iss(statement[2]);
+			//			int resb;
+			//			iss >> resb;
+			//			LOCCTR += resb;
+			//			break;
+			//		}
+			//		else if (directive == "END")
+			//		{
+			//			line.format.push_back(-1);
+			//			line.loc.push_back(-1);
+			//			line.objectCode.push_back(-1);
+			//			break;
+			//		}
+			//	}
+			//}
 		}
 	}
 
